@@ -74,7 +74,7 @@ void Game::update(float dt) {
     updateEnemies(dt);
 
     auto t0 = std::chrono::steady_clock::now();
-    collideNaive();
+    useGrid_ ? collideGrid() : collideNaive();
     auto t1 = std::chrono::steady_clock::now();
     collisionMs_ = std::chrono::duration<double, std::milli>(t1 - t0).count();
     removeDead();
@@ -93,6 +93,24 @@ void Game::collideNaive() {
                 break;               // one bullet hits one enemy
             }
         }
+    }
+}
+
+// Each bullet only checks enemies in nearby cells: roughly O(B + E).
+void Game::collideGrid() {
+    grid_.build(enemies_.size(), [&](std::size_t i) { return enemies_[i].pos; });
+
+    constexpr float kMaxEnemyRadius = 12.f;
+    for (std::size_t b = 0; b < bullets_.size(); ++b) {
+        Bullet& bullet = bullets_[b];
+        grid_.query(bullet.pos, kBulletRadius + kMaxEnemyRadius, [&](int e) {
+            Enemy& enemy = enemies_[e];
+            if (enemy.hp <= 0) return false;
+            if (!circlesOverlap(bullet.pos, kBulletRadius, enemy.pos, enemy.radius)) return false;
+            --enemy.hp;
+            bullet.life = 0.f;
+            return true;   // stop: this bullet is spent
+        });
     }
 }
 

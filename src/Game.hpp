@@ -1,6 +1,7 @@
 #pragma once
 #include <SDL.h>
 #include "Pool.hpp"
+#include "SpatialGrid.hpp"
 #include "Vec2.hpp"
 #include <random>
 
@@ -33,6 +34,7 @@ private:
     void updateEnemies(float dt);
     void spawnEnemy();
     void collideNaive();
+    void collideGrid();
     void removeDead();
 
     static constexpr int kWidth = 1280;
@@ -61,5 +63,8 @@ private:
 
     int score_ = 0;
     double collisionMs_ = 0.0;   // last measured collision time
+
+    SpatialGrid grid_{float(kWidth), float(kHeight), 32.f};
+    bool useGrid_ = true;        // toggled with G in Step 9
     Uint32 lastTitle_ = 0;
 };
