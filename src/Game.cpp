@@ -1,7 +1,7 @@
 #include "Game.hpp"
-#include <algorithm>   // std::clamp
-#include <cmath>
+#include <algorithm>   // std::clamp, std::max
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <stdexcept>
 
@@ -15,6 +15,7 @@ Game::Game() {
     // Fallback: some setups (VMs, WSLg without GPU, headless CI) have no accelerated renderer.
     if (!renderer_) renderer_ = SDL_CreateRenderer(window_, -1, SDL_RENDERER_SOFTWARE);
     if (!renderer_) throw std::runtime_error(SDL_GetError());
+    SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);   // for fading particles
 }
 
 Game::~Game() {
@@ -46,15 +47,43 @@ int Game::run() {
     return 0;
 }
 
+void Game::reset() {
+    bullets_.clear();
+    enemies_.clear();
+    particles_.clear();
+    playerPos_ = {kWidth / 2.f, kHeight / 2.f};
+    aimDir_ = {1.f, 0.f};
+    playerHp_ = 3;
+    invuln_ = 0.f;
+    gameOver_ = false;
+    fireCooldown_ = 0.f;
+    spawnTimer_ = 0.f;
+    wave_ = 1;
+    toSpawnThisWave_ = 5;
+    shake_ = 0.f;
+    score_ = 0;
+    rng_.seed(12345);
+}
+
 void Game::handleEvents() {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         if (e.type == SDL_QUIT) running_ = false;
-        if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) running_ = false;
+        if (e.type == SDL_KEYDOWN) {
+            switch (e.key.keysym.sym) {
+                case SDLK_ESCAPE: running_ = false; break;
+                case SDLK_r: reset(); break;
+                default: break;
+            }
+        }
     }
 }
 
 void Game::update(float dt) {
+    shake_ = std::max(0.f, shake_ - 40.f * dt);
+    updateParticles(dt);           // particles keep fading even on the game-over screen
+    if (gameOver_) return;
+
     const Uint8* keys = SDL_GetKeyboardState(nullptr);
     Vec2 move{};
     if (keys[SDL_SCANCODE_W]) move.y -= 1.f;
@@ -72,6 +101,7 @@ void Game::update(float dt) {
     if (toMouse.lengthSq() > 1.f) aimDir_ = toMouse.normalized();
 
     updateBullets(dt);
+
     auto te0 = std::chrono::steady_clock::now();
     updateEnemies(dt);
     auto te1 = std::chrono::steady_clock::now();
@@ -82,6 +112,8 @@ void Game::update(float dt) {
     auto t1 = std::chrono::steady_clock::now();
     collisionMs_ = std::chrono::duration<double, std::milli>(t1 - t0).count();
     removeDead();
+
+    collidePlayer(dt);
 }
 
 // Checks every bullet against every enemy: O(B * E).
@@ -117,13 +149,53 @@ void Game::collideGrid() {
     }
 }
 
+// One entity against all enemies is O(E), so a plain loop is fine here.
+// Not optimizing this is a deliberate choice.
+void Game::collidePlayer(float dt) {
+    invuln_ -= dt;
+    if (invuln_ > 0.f) return;
+    for (std::size_t i = 0; i < enemies_.count; ++i) {
+        if (circlesOverlap(playerPos_, kPlayerRadius, enemyPos(i), enemies_.radius[i])) {
+            --playerHp_;
+            invuln_ = 1.0f;   // 1 second of safety
+            shake_ = 10.f;
+            if (playerHp_ <= 0) gameOver_ = true;
+            break;
+        }
+    }
+}
+
 // Mark-then-remove: killing inside the double loop would swap a different entity
 // into the current index, so we'd skip it or test it twice.
 void Game::removeDead() {
     for (std::size_t i = bullets_.size(); i-- > 0;)
         if (bullets_[i].life <= 0.f) bullets_.kill(i);
     for (std::size_t i = enemies_.count; i-- > 0;)
-        if (enemies_.hp[i] <= 0) { ++score_; enemies_.kill(i); }
+        if (enemies_.hp[i] <= 0) {
+            ++score_;
+            burst(enemyPos(i));
+            enemies_.kill(i);
+        }
+}
+
+void Game::burst(Vec2 at) {
+    std::uniform_real_distribution<float> ang(0.f, 6.2831853f), spd(60.f, 260.f);
+    for (int k = 0; k < 12; ++k)
+        if (Particle* p = particles_.spawn()) {
+            float a = ang(rng_), s = spd(rng_);
+            p->pos = at;
+            p->vel = {std::cos(a) * s, std::sin(a) * s};
+            p->life = 0.5f;
+        }
+}
+
+void Game::updateParticles(float dt) {
+    for (std::size_t i = particles_.size(); i-- > 0;) {
+        Particle& p = particles_[i];
+        p.pos += p.vel * dt;
+        p.life -= dt;
+        if (p.life <= 0.f) particles_.kill(i);
+    }
 }
 
 void Game::spawnEnemy() {
@@ -187,13 +259,24 @@ void Game::updateBullets(float dt) {
 }
 
 void Game::drawRect(Vec2 c, float h) {
+    c += camOffset_;
     SDL_FRect r{c.x - h, c.y - h, 2 * h, 2 * h};
     SDL_RenderFillRectF(renderer_, &r);
 }
 
 void Game::render() {
+    // Screen shake: a random offset in [-shake_, shake_] applied to everything drawn this frame.
+    std::uniform_real_distribution<float> jitter(-shake_, shake_);
+    camOffset_ = shake_ > 0.f ? Vec2{jitter(fxRng_), jitter(fxRng_)} : Vec2{};
+
     SDL_SetRenderDrawColor(renderer_, 18, 18, 28, 255);
     SDL_RenderClear(renderer_);
+
+    for (std::size_t i = 0; i < particles_.size(); ++i) {   // particles fade out
+        const Particle& p = particles_[i];
+        SDL_SetRenderDrawColor(renderer_, 255, 170, 90, Uint8(255 * p.life / 0.5f));
+        drawRect(p.pos, 2.f);
+    }
 
     SDL_SetRenderDrawColor(renderer_, 255, 230, 120, 255);   // bullets
     for (std::size_t i = 0; i < bullets_.size(); ++i) drawRect(bullets_[i].pos, kBulletRadius);
@@ -201,20 +284,29 @@ void Game::render() {
     SDL_SetRenderDrawColor(renderer_, 240, 80, 90, 255);     // enemies
     for (std::size_t i = 0; i < enemies_.count; ++i) drawRect(enemyPos(i), enemies_.radius[i]);
 
-    SDL_SetRenderDrawColor(renderer_, 90, 200, 255, 255);   // player
-    drawRect(playerPos_, kPlayerRadius);
-    Vec2 tip = playerPos_ + aimDir_ * 28.f;                  // aim line
-    SDL_RenderDrawLineF(renderer_, playerPos_.x, playerPos_.y, tip.x, tip.y);
+    bool blinkOff = invuln_ > 0.f && (SDL_GetTicks() / 80) % 2 == 0;
+    if (!gameOver_ && !blinkOff) {
+        SDL_SetRenderDrawColor(renderer_, 90, 200, 255, 255);   // player
+        drawRect(playerPos_, kPlayerRadius);
+        Vec2 base = playerPos_ + camOffset_;
+        Vec2 tip = base + aimDir_ * 28.f;                       // aim line
+        SDL_RenderDrawLineF(renderer_, base.x, base.y, tip.x, tip.y);
+    }
 
     SDL_RenderPresent(renderer_);
 
     if (SDL_GetTicks() - lastTitle_ > 500) {
         lastTitle_ = SDL_GetTicks();
         char buf[192];
-        std::snprintf(buf, sizeof buf,
-                      "Arena | wave %d | score %d | enemies %zu | bullets %zu | collide %.3f ms"
-                      " | enemy update %.3f ms",
-                      wave_, score_, enemies_.count, bullets_.size(), collisionMs_, enemyUpdateMs_);
+        if (gameOver_)
+            std::snprintf(buf, sizeof buf, "Arena | GAME OVER (score %d, wave %d) - press R",
+                          score_, wave_);
+        else
+            std::snprintf(buf, sizeof buf,
+                          "Arena | HP %d | wave %d | score %d | enemies %zu | bullets %zu"
+                          " | collide %.3f ms | enemy update %.3f ms",
+                          playerHp_, wave_, score_, enemies_.count, bullets_.size(),
+                          collisionMs_, enemyUpdateMs_);
         SDL_SetWindowTitle(window_, buf);
     }
 }
