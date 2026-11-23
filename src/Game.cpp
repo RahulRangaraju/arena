@@ -20,6 +20,7 @@ Game::Game(GameOptions opts) {
     if (!renderer_) renderer_ = SDL_CreateRenderer(window_, -1, SDL_RENDERER_SOFTWARE);
     if (!renderer_) throw std::runtime_error(SDL_GetError());
     SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);   // for fading particles
+    rects_.reserve(enemies_.capacity() + bullets_.capacity() + particles_.capacity());
 }
 
 Game::~Game() {
@@ -92,6 +93,10 @@ void Game::handleEvents() {
                 case SDLK_3: startStress(5000); break;
                 case SDLK_4: startStress(10000); break;
                 case SDLK_5: startStress(20000); break;
+                case SDLK_b:                       // batched vs one-draw-call-per-rect
+                    batchRender_ = !batchRender_;
+                    std::printf("# batched rendering %s\n", batchRender_ ? "on" : "off");
+                    break;
                 case SDLK_g:                       // naive vs grid
                     useGrid_ = !useGrid_;
                     collideSumMs_ = enemySumMs_ = updateSumMs_ = 0.0;
@@ -469,7 +474,26 @@ void Game::drawRect(Vec2 c, float h) {
     SDL_RenderFillRectF(renderer_, &r);
 }
 
+// Profiling showed (or will show on your machine) that once collisions are cheap, issuing one
+// draw call per rect dominates. Batching: collect rects of one color, submit them in one call.
+void Game::queueRect(Vec2 c, float h) {
+    c += camOffset_;
+    if (batchRender_) {
+        rects_.push_back({c.x - h, c.y - h, 2 * h, 2 * h});
+    } else {
+        SDL_FRect r{c.x - h, c.y - h, 2 * h, 2 * h};
+        SDL_RenderFillRectF(renderer_, &r);
+    }
+}
+
+void Game::flushRects() {
+    if (!rects_.empty())
+        SDL_RenderFillRectsF(renderer_, rects_.data(), static_cast<int>(rects_.size()));
+    rects_.clear();
+}
+
 void Game::render() {
+    Uint64 r0 = SDL_GetPerformanceCounter();
     // Screen shake: a random offset in [-shake_, shake_] applied to everything drawn this frame.
     std::uniform_real_distribution<float> jitter(-shake_, shake_);
     camOffset_ = shake_ > 0.f ? Vec2{jitter(fxRng_), jitter(fxRng_)} : Vec2{};
@@ -477,17 +501,31 @@ void Game::render() {
     SDL_SetRenderDrawColor(renderer_, 18, 18, 28, 255);
     SDL_RenderClear(renderer_);
 
-    for (std::size_t i = 0; i < particles_.size(); ++i) {   // particles fade out
-        const Particle& p = particles_[i];
-        SDL_SetRenderDrawColor(renderer_, 255, 170, 90, Uint8(255 * p.life / 0.5f));
-        drawRect(p.pos, 2.f);
+    // Particles fade out. To batch them, bucket alpha into 8 levels: one draw call per level.
+    constexpr int kAlphaLevels = 8;
+    for (int level = 0; level < kAlphaLevels; ++level) {
+        for (std::size_t i = 0; i < particles_.size(); ++i) {
+            const Particle& p = particles_[i];
+            int l = std::min(kAlphaLevels - 1, int(p.life / 0.5f * kAlphaLevels));
+            if (l == level) queueRect(p.pos, 2.f);
+        }
+        SDL_SetRenderDrawColor(renderer_, 255, 170, 90, Uint8(255 * (level + 1) / kAlphaLevels));
+        flushRects();
     }
 
-    SDL_SetRenderDrawColor(renderer_, 255, 230, 120, 255);   // bullets
-    for (std::size_t i = 0; i < bullets_.size(); ++i) drawRect(bullets_[i].pos, kBulletRadius);
+    // Enemies. In stress mode thousands of full-size squares would cover the whole arena, so
+    // they're drawn smaller there. Visual only: the collision radius is unchanged.
+    const float enemyDrawScale = stress_ ? 0.35f : 1.f;
+    for (std::size_t i = 0; i < enemies_.count; ++i)
+        queueRect(enemyPos(i), enemies_.radius[i] * enemyDrawScale);
+    SDL_SetRenderDrawColor(renderer_, 240, 80, 90, 255);
+    flushRects();
 
-    SDL_SetRenderDrawColor(renderer_, 240, 80, 90, 255);     // enemies
-    for (std::size_t i = 0; i < enemies_.count; ++i) drawRect(enemyPos(i), enemies_.radius[i]);
+    const float bulletDrawScale = stress_ ? 0.5f : 1.f;
+    for (std::size_t i = 0; i < bullets_.size(); ++i)
+        queueRect(bullets_[i].pos, kBulletRadius * bulletDrawScale);
+    SDL_SetRenderDrawColor(renderer_, 255, 230, 120, 255);   // bullets on top
+    flushRects();
 
     bool blinkOff = invuln_ > 0.f && (SDL_GetTicks() / 80) % 2 == 0;
     if (!gameOver_ && !blinkOff) {
@@ -498,6 +536,8 @@ void Game::render() {
         SDL_RenderDrawLineF(renderer_, base.x, base.y, tip.x, tip.y);
     }
 
+    renderMs_ = double(SDL_GetPerformanceCounter() - r0) * 1000.0 /
+                double(SDL_GetPerformanceFrequency());   // CPU-side cost of building the frame
     SDL_RenderPresent(renderer_);
 
     ++framesSinceTitle_;
@@ -509,10 +549,11 @@ void Game::render() {
         char buf[224];
         if (stress_)
             std::snprintf(buf, sizeof buf,
-                          "Arena STRESS [%s, cell %.0f] | %.0f FPS | enemies %zu | bullets %zu"
-                          " | collide %.3f ms | update %.3f ms   (F1 exit, 1-5 count, G, C)",
-                          useGrid_ ? "grid" : "NAIVE", grid_.cellSize(), fps_, enemies_.count,
-                          bullets_.size(), collisionMs_, enemyUpdateMs_);
+                          "Arena STRESS [%s, cell %.0f, %s] | %.0f FPS | enemies %zu | bullets %zu"
+                          " | collide %.3f ms | render %.2f ms   (F1 exit, 1-5, G, C, B)",
+                          useGrid_ ? "grid" : "NAIVE", grid_.cellSize(),
+                          batchRender_ ? "batched" : "unbatched", fps_, enemies_.count,
+                          bullets_.size(), collisionMs_, renderMs_);
         else if (gameOver_)
             std::snprintf(buf, sizeof buf, "Arena | GAME OVER (score %d, wave %d) - press R",
                           score_, wave_);

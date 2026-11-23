@@ -5,6 +5,7 @@
 #include "SpatialGrid.hpp"
 #include "Vec2.hpp"
 #include <random>
+#include <vector>
 
 struct Bullet {
     Vec2 pos, vel;
@@ -35,6 +36,8 @@ private:
     void update(float dt);
     void render();
     void drawRect(Vec2 center, float halfSize);
+    void queueRect(Vec2 center, float halfSize);   // batched drawing (Step 10)
+    void flushRects();
     void reset();
 
     void updateBullets(float dt);
@@ -94,6 +97,9 @@ private:
     Pool<Particle> particles_{30000};
     float shake_ = 0.f;        // screen-shake strength in pixels, decays over time
     Vec2 camOffset_{};         // added to every draw position
+    std::vector<SDL_FRect> rects_;   // render batch, reserved once (no per-frame allocation)
+    bool batchRender_ = true;        // B toggles, so you can measure the difference
+    double renderMs_ = 0.0;
     std::mt19937 fxRng_{777};  // render-only randomness. Kept separate from rng_ so the
                                // number of frames drawn never changes the simulation.
 
