@@ -1,6 +1,12 @@
 #pragma once
 #include <SDL.h>
+#include "Pool.hpp"
 #include "Vec2.hpp"
+
+struct Bullet {
+    Vec2 pos, vel;
+    float life = 0.f;   // seconds left
+};
 
 class Game {
 public:
@@ -15,6 +21,7 @@ private:
     void update(float dt);
     void render();
     void drawRect(Vec2 center, float halfSize);
+    void updateBullets(float dt);
 
     static constexpr int kWidth = 1280;
     static constexpr int kHeight = 720;
@@ -27,4 +34,10 @@ private:
     Vec2 aimDir_{1.f, 0.f};
     static constexpr float kPlayerSpeed = 320.f;   // pixels per second
     static constexpr float kPlayerRadius = 14.f;
+
+    Pool<Bullet> bullets_{20000};
+    float fireCooldown_ = 0.f;
+    static constexpr float kFireInterval = 0.1f;
+    static constexpr float kBulletSpeed = 900.f;
+    static constexpr float kBulletRadius = 3.f;
 };

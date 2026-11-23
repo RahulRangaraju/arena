@@ -67,6 +67,29 @@ void Game::update(float dt) {
     SDL_GetMouseState(&mx, &my);
     Vec2 toMouse = Vec2{float(mx), float(my)} - playerPos_;
     if (toMouse.lengthSq() > 1.f) aimDir_ = toMouse.normalized();
+
+    updateBullets(dt);
+}
+
+void Game::updateBullets(float dt) {
+    fireCooldown_ -= dt;
+    Uint32 buttons = SDL_GetMouseState(nullptr, nullptr);
+    if ((buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) && fireCooldown_ <= 0.f) {
+        if (Bullet* b = bullets_.spawn()) {
+            b->pos = playerPos_ + aimDir_ * (kPlayerRadius + 4.f);
+            b->vel = aimDir_ * kBulletSpeed;
+            b->life = 1.5f;
+        }
+        fireCooldown_ = kFireInterval;
+    }
+
+    for (std::size_t i = bullets_.size(); i-- > 0;) {   // backwards: kill() is safe
+        Bullet& b = bullets_[i];
+        b.pos += b.vel * dt;
+        b.life -= dt;
+        bool offscreen = b.pos.x < 0 || b.pos.x > kWidth || b.pos.y < 0 || b.pos.y > kHeight;
+        if (b.life <= 0.f || offscreen) bullets_.kill(i);
+    }
 }
 
 void Game::drawRect(Vec2 c, float h) {
@@ -77,6 +100,9 @@ void Game::drawRect(Vec2 c, float h) {
 void Game::render() {
     SDL_SetRenderDrawColor(renderer_, 18, 18, 28, 255);
     SDL_RenderClear(renderer_);
+
+    SDL_SetRenderDrawColor(renderer_, 255, 230, 120, 255);   // bullets
+    for (std::size_t i = 0; i < bullets_.size(); ++i) drawRect(bullets_[i].pos, kBulletRadius);
 
     SDL_SetRenderDrawColor(renderer_, 90, 200, 255, 255);   // player
     drawRect(playerPos_, kPlayerRadius);
