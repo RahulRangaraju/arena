@@ -1,4 +1,5 @@
 #include "Game.hpp"
+#include <algorithm>   // std::clamp
 #include <stdexcept>
 
 Game::Game() {
@@ -50,10 +51,37 @@ void Game::handleEvents() {
     }
 }
 
-void Game::update(float /*dt*/) {}
+void Game::update(float dt) {
+    const Uint8* keys = SDL_GetKeyboardState(nullptr);
+    Vec2 move{};
+    if (keys[SDL_SCANCODE_W]) move.y -= 1.f;
+    if (keys[SDL_SCANCODE_S]) move.y += 1.f;
+    if (keys[SDL_SCANCODE_A]) move.x -= 1.f;
+    if (keys[SDL_SCANCODE_D]) move.x += 1.f;
+    playerPos_ += move.normalized() * (kPlayerSpeed * dt);   // normalized: diagonals aren't faster
+
+    playerPos_.x = std::clamp(playerPos_.x, kPlayerRadius, kWidth - kPlayerRadius);
+    playerPos_.y = std::clamp(playerPos_.y, kPlayerRadius, kHeight - kPlayerRadius);
+
+    int mx = 0, my = 0;
+    SDL_GetMouseState(&mx, &my);
+    Vec2 toMouse = Vec2{float(mx), float(my)} - playerPos_;
+    if (toMouse.lengthSq() > 1.f) aimDir_ = toMouse.normalized();
+}
+
+void Game::drawRect(Vec2 c, float h) {
+    SDL_FRect r{c.x - h, c.y - h, 2 * h, 2 * h};
+    SDL_RenderFillRectF(renderer_, &r);
+}
 
 void Game::render() {
     SDL_SetRenderDrawColor(renderer_, 18, 18, 28, 255);
     SDL_RenderClear(renderer_);
+
+    SDL_SetRenderDrawColor(renderer_, 90, 200, 255, 255);   // player
+    drawRect(playerPos_, kPlayerRadius);
+    Vec2 tip = playerPos_ + aimDir_ * 28.f;                  // aim line
+    SDL_RenderDrawLineF(renderer_, playerPos_.x, playerPos_.y, tip.x, tip.y);
+
     SDL_RenderPresent(renderer_);
 }
