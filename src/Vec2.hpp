@@ -14,3 +14,10 @@ struct Vec2 {
         return len > 0.f ? Vec2{x / len, y / len} : Vec2{};
     }
 };
+
+// Two circles overlap when the distance between centers is less than the sum of radii.
+// Compare squared distances so we never call sqrt. Touching (distance == r) is NOT overlap.
+inline bool circlesOverlap(Vec2 a, float ra, Vec2 b, float rb) {
+    float r = ra + rb;
+    return (a - b).lengthSq() < r * r;
+}

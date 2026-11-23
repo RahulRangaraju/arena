@@ -1,5 +1,7 @@
 #include "Game.hpp"
 #include <algorithm>   // std::clamp
+#include <chrono>
+#include <cstdio>
 #include <stdexcept>
 
 Game::Game() {
@@ -70,6 +72,37 @@ void Game::update(float dt) {
 
     updateBullets(dt);
     updateEnemies(dt);
+
+    auto t0 = std::chrono::steady_clock::now();
+    collideNaive();
+    auto t1 = std::chrono::steady_clock::now();
+    collisionMs_ = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    removeDead();
+}
+
+// Checks every bullet against every enemy: O(B * E).
+void Game::collideNaive() {
+    for (std::size_t b = 0; b < bullets_.size(); ++b) {
+        Bullet& bullet = bullets_[b];
+        for (std::size_t e = 0; e < enemies_.size(); ++e) {
+            Enemy& enemy = enemies_[e];
+            if (enemy.hp <= 0) continue;
+            if (circlesOverlap(bullet.pos, kBulletRadius, enemy.pos, enemy.radius)) {
+                --enemy.hp;
+                bullet.life = 0.f;   // mark; removal happens after the loop
+                break;               // one bullet hits one enemy
+            }
+        }
+    }
+}
+
+// Mark-then-remove: killing inside the double loop would swap a different entity
+// into the current index, so we'd skip it or test it twice.
+void Game::removeDead() {
+    for (std::size_t i = bullets_.size(); i-- > 0;)
+        if (bullets_[i].life <= 0.f) bullets_.kill(i);
+    for (std::size_t i = enemies_.size(); i-- > 0;)
+        if (enemies_[i].hp <= 0) { ++score_; enemies_.kill(i); }
 }
 
 void Game::spawnEnemy() {
@@ -148,4 +181,13 @@ void Game::render() {
     SDL_RenderDrawLineF(renderer_, playerPos_.x, playerPos_.y, tip.x, tip.y);
 
     SDL_RenderPresent(renderer_);
+
+    if (SDL_GetTicks() - lastTitle_ > 500) {
+        lastTitle_ = SDL_GetTicks();
+        char buf[160];
+        std::snprintf(buf, sizeof buf,
+                      "Arena | wave %d | score %d | enemies %zu | bullets %zu | collide %.3f ms",
+                      wave_, score_, enemies_.size(), bullets_.size(), collisionMs_);
+        SDL_SetWindowTitle(window_, buf);
+    }
 }

@@ -32,6 +32,8 @@ private:
     void updateBullets(float dt);
     void updateEnemies(float dt);
     void spawnEnemy();
+    void collideNaive();
+    void removeDead();
 
     static constexpr int kWidth = 1280;
     static constexpr int kHeight = 720;
@@ -56,4 +58,8 @@ private:
     float spawnTimer_ = 0.f;
     int wave_ = 1;
     int toSpawnThisWave_ = 5;
+
+    int score_ = 0;
+    double collisionMs_ = 0.0;   // last measured collision time
+    Uint32 lastTitle_ = 0;
 };
