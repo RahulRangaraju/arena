@@ -2,10 +2,18 @@
 #include <SDL.h>
 #include "Pool.hpp"
 #include "Vec2.hpp"
+#include <random>
 
 struct Bullet {
     Vec2 pos, vel;
     float life = 0.f;   // seconds left
+};
+
+struct Enemy {
+    Vec2 pos;
+    float speed = 0.f;
+    float radius = 12.f;
+    int hp = 1;
 };
 
 class Game {
@@ -22,6 +30,8 @@ private:
     void render();
     void drawRect(Vec2 center, float halfSize);
     void updateBullets(float dt);
+    void updateEnemies(float dt);
+    void spawnEnemy();
 
     static constexpr int kWidth = 1280;
     static constexpr int kHeight = 720;
@@ -40,4 +50,10 @@ private:
     static constexpr float kFireInterval = 0.1f;
     static constexpr float kBulletSpeed = 900.f;
     static constexpr float kBulletRadius = 3.f;
+
+    Pool<Enemy> enemies_{20000};
+    std::mt19937 rng_{12345};   // fixed seed = reproducible runs and benchmarks
+    float spawnTimer_ = 0.f;
+    int wave_ = 1;
+    int toSpawnThisWave_ = 5;
 };

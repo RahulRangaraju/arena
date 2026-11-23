@@ -69,6 +69,41 @@ void Game::update(float dt) {
     if (toMouse.lengthSq() > 1.f) aimDir_ = toMouse.normalized();
 
     updateBullets(dt);
+    updateEnemies(dt);
+}
+
+void Game::spawnEnemy() {
+    Enemy* e = enemies_.spawn();
+    if (!e) return;
+    std::uniform_real_distribution<float> t(0.f, 1.f);
+    switch (rng_() % 4) {   // pick an edge
+        case 0: e->pos = {t(rng_) * kWidth, -20.f}; break;
+        case 1: e->pos = {t(rng_) * kWidth, kHeight + 20.f}; break;
+        case 2: e->pos = {-20.f, t(rng_) * kHeight}; break;
+        default: e->pos = {kWidth + 20.f, t(rng_) * kHeight}; break;
+    }
+    e->speed = 80.f + 60.f * t(rng_) + 10.f * wave_;
+    e->radius = 12.f;
+    e->hp = 1 + wave_ / 4;
+}
+
+void Game::updateEnemies(float dt) {
+    spawnTimer_ -= dt;
+    if (toSpawnThisWave_ > 0 && spawnTimer_ <= 0.f) {
+        spawnEnemy();
+        --toSpawnThisWave_;
+        spawnTimer_ = 0.4f;
+    }
+    if (toSpawnThisWave_ == 0 && enemies_.size() == 0) {   // wave cleared
+        ++wave_;
+        toSpawnThisWave_ = 5 + wave_ * 3;
+    }
+
+    for (std::size_t i = 0; i < enemies_.size(); ++i) {
+        Enemy& e = enemies_[i];
+        Vec2 dir = (playerPos_ - e.pos).normalized();
+        e.pos += dir * (e.speed * dt);
+    }
 }
 
 void Game::updateBullets(float dt) {
@@ -103,6 +138,9 @@ void Game::render() {
 
     SDL_SetRenderDrawColor(renderer_, 255, 230, 120, 255);   // bullets
     for (std::size_t i = 0; i < bullets_.size(); ++i) drawRect(bullets_[i].pos, kBulletRadius);
+
+    SDL_SetRenderDrawColor(renderer_, 240, 80, 90, 255);     // enemies
+    for (std::size_t i = 0; i < enemies_.size(); ++i) drawRect(enemies_[i].pos, enemies_[i].radius);
 
     SDL_SetRenderDrawColor(renderer_, 90, 200, 255, 255);   // player
     drawRect(playerPos_, kPlayerRadius);
