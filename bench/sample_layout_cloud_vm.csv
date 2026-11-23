@@ -1,0 +1,14 @@
+layout,enemies,ns_per_enemy,ms_per_update
+aos,1000,1.836,0.0018
+soa,1000,0.683,0.0007
+# 1000 enemies: SoA is 2.69x the speed of AoS (-63% time)
+aos,10000,1.503,0.0150
+soa,10000,0.644,0.0064
+# 10000 enemies: SoA is 2.33x the speed of AoS (-57% time)
+aos,20000,1.381,0.0276
+soa,20000,0.630,0.0126
+# 20000 enemies: SoA is 2.19x the speed of AoS (-54% time)
+aos,1000000,2.318,2.3181
+soa,1000000,0.943,0.9427
+# 1000000 enemies: SoA is 2.46x the speed of AoS (-59% time)
+# checksum 4829.385
