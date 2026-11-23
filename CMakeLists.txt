@@ -7,6 +7,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)   # helps VS Code / clangd
 
 find_package(SDL2 REQUIRED)
 
-add_executable(arena src/main.cpp)
+add_executable(arena src/main.cpp src/Game.cpp)
 target_link_libraries(arena PRIVATE SDL2::SDL2)
 target_compile_options(arena PRIVATE -Wall -Wextra -Wpedantic)
