@@ -1,5 +1,6 @@
 #pragma once
 #include <SDL.h>
+#include "Enemies.hpp"
 #include "Pool.hpp"
 #include "SpatialGrid.hpp"
 #include "Vec2.hpp"
@@ -10,12 +11,6 @@ struct Bullet {
     float life = 0.f;   // seconds left
 };
 
-struct Enemy {
-    Vec2 pos;
-    float speed = 0.f;
-    float radius = 12.f;
-    int hp = 1;
-};
 
 class Game {
 public:
@@ -36,6 +31,7 @@ private:
     void collideNaive();
     void collideGrid();
     void removeDead();
+    Vec2 enemyPos(std::size_t i) const { return {enemies_.x[i], enemies_.y[i]}; }
 
     static constexpr int kWidth = 1280;
     static constexpr int kHeight = 720;
@@ -55,7 +51,7 @@ private:
     static constexpr float kBulletSpeed = 900.f;
     static constexpr float kBulletRadius = 3.f;
 
-    Pool<Enemy> enemies_{20000};
+    Enemies enemies_{20000};   // struct-of-arrays (Step 7)
     std::mt19937 rng_{12345};   // fixed seed = reproducible runs and benchmarks
     float spawnTimer_ = 0.f;
     int wave_ = 1;
@@ -63,6 +59,7 @@ private:
 
     int score_ = 0;
     double collisionMs_ = 0.0;   // last measured collision time
+    double enemyUpdateMs_ = 0.0; // last measured updateEnemies time
 
     SpatialGrid grid_{float(kWidth), float(kHeight), 32.f};
     bool useGrid_ = true;        // toggled with G in Step 9

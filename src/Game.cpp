@@ -1,5 +1,6 @@
 #include "Game.hpp"
 #include <algorithm>   // std::clamp
+#include <cmath>
 #include <chrono>
 #include <cstdio>
 #include <stdexcept>
@@ -71,7 +72,10 @@ void Game::update(float dt) {
     if (toMouse.lengthSq() > 1.f) aimDir_ = toMouse.normalized();
 
     updateBullets(dt);
+    auto te0 = std::chrono::steady_clock::now();
     updateEnemies(dt);
+    auto te1 = std::chrono::steady_clock::now();
+    enemyUpdateMs_ = std::chrono::duration<double, std::milli>(te1 - te0).count();
 
     auto t0 = std::chrono::steady_clock::now();
     useGrid_ ? collideGrid() : collideNaive();
@@ -84,11 +88,10 @@ void Game::update(float dt) {
 void Game::collideNaive() {
     for (std::size_t b = 0; b < bullets_.size(); ++b) {
         Bullet& bullet = bullets_[b];
-        for (std::size_t e = 0; e < enemies_.size(); ++e) {
-            Enemy& enemy = enemies_[e];
-            if (enemy.hp <= 0) continue;
-            if (circlesOverlap(bullet.pos, kBulletRadius, enemy.pos, enemy.radius)) {
-                --enemy.hp;
+        for (std::size_t e = 0; e < enemies_.count; ++e) {
+            if (enemies_.hp[e] <= 0) continue;
+            if (circlesOverlap(bullet.pos, kBulletRadius, enemyPos(e), enemies_.radius[e])) {
+                --enemies_.hp[e];
                 bullet.life = 0.f;   // mark; removal happens after the loop
                 break;               // one bullet hits one enemy
             }
@@ -98,16 +101,16 @@ void Game::collideNaive() {
 
 // Each bullet only checks enemies in nearby cells: roughly O(B + E).
 void Game::collideGrid() {
-    grid_.build(enemies_.size(), [&](std::size_t i) { return enemies_[i].pos; });
+    grid_.build(enemies_.count, [&](std::size_t i) { return enemyPos(i); });
 
     constexpr float kMaxEnemyRadius = 12.f;
     for (std::size_t b = 0; b < bullets_.size(); ++b) {
         Bullet& bullet = bullets_[b];
         grid_.query(bullet.pos, kBulletRadius + kMaxEnemyRadius, [&](int e) {
-            Enemy& enemy = enemies_[e];
-            if (enemy.hp <= 0) return false;
-            if (!circlesOverlap(bullet.pos, kBulletRadius, enemy.pos, enemy.radius)) return false;
-            --enemy.hp;
+            if (enemies_.hp[e] <= 0) return false;
+            if (!circlesOverlap(bullet.pos, kBulletRadius, enemyPos(e), enemies_.radius[e]))
+                return false;
+            --enemies_.hp[e];
             bullet.life = 0.f;
             return true;   // stop: this bullet is spent
         });
@@ -119,23 +122,21 @@ void Game::collideGrid() {
 void Game::removeDead() {
     for (std::size_t i = bullets_.size(); i-- > 0;)
         if (bullets_[i].life <= 0.f) bullets_.kill(i);
-    for (std::size_t i = enemies_.size(); i-- > 0;)
-        if (enemies_[i].hp <= 0) { ++score_; enemies_.kill(i); }
+    for (std::size_t i = enemies_.count; i-- > 0;)
+        if (enemies_.hp[i] <= 0) { ++score_; enemies_.kill(i); }
 }
 
 void Game::spawnEnemy() {
-    Enemy* e = enemies_.spawn();
-    if (!e) return;
     std::uniform_real_distribution<float> t(0.f, 1.f);
+    Vec2 p;
     switch (rng_() % 4) {   // pick an edge
-        case 0: e->pos = {t(rng_) * kWidth, -20.f}; break;
-        case 1: e->pos = {t(rng_) * kWidth, kHeight + 20.f}; break;
-        case 2: e->pos = {-20.f, t(rng_) * kHeight}; break;
-        default: e->pos = {kWidth + 20.f, t(rng_) * kHeight}; break;
+        case 0: p = {t(rng_) * kWidth, -20.f}; break;
+        case 1: p = {t(rng_) * kWidth, kHeight + 20.f}; break;
+        case 2: p = {-20.f, t(rng_) * kHeight}; break;
+        default: p = {kWidth + 20.f, t(rng_) * kHeight}; break;
     }
-    e->speed = 80.f + 60.f * t(rng_) + 10.f * wave_;
-    e->radius = 12.f;
-    e->hp = 1 + wave_ / 4;
+    float speed = 80.f + 60.f * t(rng_) + 10.f * wave_;
+    enemies_.spawn(p.x, p.y, speed, 12.f, 1 + wave_ / 4);
 }
 
 void Game::updateEnemies(float dt) {
@@ -145,15 +146,22 @@ void Game::updateEnemies(float dt) {
         --toSpawnThisWave_;
         spawnTimer_ = 0.4f;
     }
-    if (toSpawnThisWave_ == 0 && enemies_.size() == 0) {   // wave cleared
+    if (toSpawnThisWave_ == 0 && enemies_.count == 0) {   // wave cleared
         ++wave_;
         toSpawnThisWave_ = 5 + wave_ * 3;
     }
 
-    for (std::size_t i = 0; i < enemies_.size(); ++i) {
-        Enemy& e = enemies_[i];
-        Vec2 dir = (playerPos_ - e.pos).normalized();
-        e.pos += dir * (e.speed * dt);
+    // Flat, branch-free math over plain arrays: friendly to auto-vectorization.
+    const float px = playerPos_.x, py = playerPos_.y;
+    float* __restrict ex = enemies_.x.data();
+    float* __restrict ey = enemies_.y.data();
+    const float* __restrict sp = enemies_.speed.data();
+    const std::size_t n = enemies_.count;
+    for (std::size_t i = 0; i < n; ++i) {
+        float dx = px - ex[i], dy = py - ey[i];
+        float inv = 1.f / std::sqrt(dx * dx + dy * dy + 1e-6f);   // +epsilon: no divide-by-zero
+        ex[i] += dx * inv * sp[i] * dt;
+        ey[i] += dy * inv * sp[i] * dt;
     }
 }
 
@@ -191,7 +199,7 @@ void Game::render() {
     for (std::size_t i = 0; i < bullets_.size(); ++i) drawRect(bullets_[i].pos, kBulletRadius);
 
     SDL_SetRenderDrawColor(renderer_, 240, 80, 90, 255);     // enemies
-    for (std::size_t i = 0; i < enemies_.size(); ++i) drawRect(enemies_[i].pos, enemies_[i].radius);
+    for (std::size_t i = 0; i < enemies_.count; ++i) drawRect(enemyPos(i), enemies_.radius[i]);
 
     SDL_SetRenderDrawColor(renderer_, 90, 200, 255, 255);   // player
     drawRect(playerPos_, kPlayerRadius);
@@ -202,10 +210,11 @@ void Game::render() {
 
     if (SDL_GetTicks() - lastTitle_ > 500) {
         lastTitle_ = SDL_GetTicks();
-        char buf[160];
+        char buf[192];
         std::snprintf(buf, sizeof buf,
-                      "Arena | wave %d | score %d | enemies %zu | bullets %zu | collide %.3f ms",
-                      wave_, score_, enemies_.size(), bullets_.size(), collisionMs_);
+                      "Arena | wave %d | score %d | enemies %zu | bullets %zu | collide %.3f ms"
+                      " | enemy update %.3f ms",
+                      wave_, score_, enemies_.count, bullets_.size(), collisionMs_, enemyUpdateMs_);
         SDL_SetWindowTitle(window_, buf);
     }
 }
