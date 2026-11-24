@@ -19,7 +19,7 @@ per step). These are the places where it deliberately differs.
 | 10 | More tests: every cell size, rebuild with fewer items, early stop, SoA kill, Pool reuse | Cheap to write, and each one covers a bug that's easy to introduce. |
 | 10 | Batched rendering (`SDL_RenderFillRectsF`), B toggles it | The guide's "natural next fix" for rendering becoming the bottleneck. The toggle lets you measure it yourself. |
 | 10 | Stress mode draws entities smaller | At 5,000+ full-size enemies the screen is a solid red wall. Visual only; collision radii are unchanged. |
-| 10 | ASan job in CI | The resume bullet says "CI runs tests and sanitizers". |
+| 10 | ASan job in CI | CI should catch memory errors, not just failing tests. |
 
 Not done (stretch goals from the guide): SDL_ttf on-screen text, Emscripten, multithreading,
 quadtree, sprites and sound, SDL3 port.

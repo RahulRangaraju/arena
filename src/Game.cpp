@@ -474,8 +474,8 @@ void Game::drawRect(Vec2 c, float h) {
     SDL_RenderFillRectF(renderer_, &r);
 }
 
-// Profiling showed (or will show on your machine) that once collisions are cheap, issuing one
-// draw call per rect dominates. Batching: collect rects of one color, submit them in one call.
+// Once collisions are cheap, issuing one draw call per rect becomes a significant cost
+// (see README, "Rendering"). Batching: collect rects of one color, submit them in one call.
 void Game::queueRect(Vec2 c, float h) {
     c += camOffset_;
     if (batchRender_) {

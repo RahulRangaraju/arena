@@ -1,10 +1,10 @@
 # Arena: a 2D shooter engine in C++20 / SDL2
 
-![CI](https://github.com/YOUR_USERNAME/arena/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/RahulRangaraju/arena/actions/workflows/ci.yml/badge.svg)
 
 A top-down arena shooter whose engine keeps **20,000 enemies and ~13,000 bullets** in a
 **120 Hz fixed-timestep** simulation. It uses object pools, a counting-sort **spatial-grid
-collision broadphase** (up to **76× faster** than brute force in the sample run below), and a
+collision broadphase** (up to **48× faster** than brute force on an i9-12900KF, below), and a
 **struct-of-arrays** layout for hot entity data.
 
 <!-- TODO: record a 10-15 s GIF (normal play -> F1 stress -> G to show naive slowing down)
@@ -94,23 +94,28 @@ Rules: Release build, laptop plugged in, other apps closed, fixed RNG seed (buil
 benchmark prints the CPU model on its first line. For FPS, run `./build/arena --no-vsync`,
 press F1 then 1–5, and read the title bar.
 
-> **The numbers below are a sample run on a 2-thread cloud VM** (Intel Xeon @ 2.10 GHz),
-> included so you can see the expected shape. Replace them with your own machine's results.
+Measured on an Intel Core i9-12900KF · GCC 15.2.0 · Release · Ubuntu on WSL2 (Windows 11).
+Raw output: [`bench/results.csv`](bench/results.csv).
 
-![collision benchmark](docs/sample_collision_cloud_vm.png)
+![collision benchmark](docs/collision_i9-12900KF.png)
 
-| Enemies | Bullets | Naive collide (ms) | Grid collide (ms) | Speedup | FPS (grid, no vsync) |
-|---:|---:|---:|---:|---:|---:|
-| 1,000 | 13,433 | 17.00 | 0.90 | 19× | _yours_ |
-| 2,000 | 13,433 | 29.96 | 1.05 | 28× | _yours_ |
-| 5,000 | 13,433 | 81.87 | 2.34 | 35× | _yours_ |
-| 10,000 | 13,433 | 158.93 | 3.23 | 49× | _yours_ |
-| 20,000 | 13,433 | 338.93 | 4.47 | 76× | _yours_ |
+| Enemies | Bullets | Naive collide (ms) | Grid collide (ms) | Speedup |
+|---:|---:|---:|---:|---:|
+| 1,000 | 13,433 | 9.19 | 0.48 | 19.2× |
+| 2,000 | 13,433 | 18.11 | 0.66 | 27.5× |
+| 5,000 | 13,433 | 45.33 | 1.18 | 38.6× |
+| 10,000 | 13,433 | 92.85 | 2.03 | 45.7× |
+| 20,000 | 13,433 | 181.76 | 3.75 | 48.5× |
 
-The naive pass is past the 16.7 ms frame budget already at 1,000 enemies with this many bullets,
-and grows linearly with enemies (bullets are fixed). The grid stays far below budget at 20,000.
+Both modes find exactly the same hits at every size (the benchmark checks this and prints
+`hit counts match between grid and naive`). FPS isn't recorded here: the table comes from the
+headless benchmark.
 
-**Cell size** at 10,000 enemies: 16 px = 2.74 ms, 32 px = 3.23 ms, 64 px = 4.03 ms. Smaller cells
+With this many bullets the naive pass already exceeds the 8.3 ms budget of one 120 Hz update at
+1,000 enemies and the 16.7 ms frame budget at 2,000, and it grows linearly with enemies (bullets
+are fixed). The grid stays far below budget at 20,000.
+
+**Cell size** at 10,000 enemies: 16 px = 1.86 ms, 32 px = 2.03 ms, 64 px = 2.54 ms. Smaller cells
 won here because a query's 15 px radius covers only a few 16 px cells, each holding few enemies.
 Larger cells mean scanning many enemies that can't possibly overlap.
 
@@ -118,22 +123,23 @@ Larger cells mean scanning many enemies that can't possibly overlap.
 
 | Enemies | AoS (ms/update) | SoA (ms/update) | Speedup |
 |---:|---:|---:|---:|
-| 10,000 | 0.0150 | 0.0064 | 2.3× |
-| 20,000 | 0.0276 | 0.0126 | 2.2× |
-| 1,000,000 | 2.32 | 0.94 | 2.5× |
+| 1,000 | 0.0010 | 0.0005 | 2.12× |
+| 10,000 | 0.0106 | 0.0049 | 2.15× |
+| 20,000 | 0.0213 | 0.0098 | 2.16× |
+| 1,000,000 | 1.158 | 0.533 | 2.17× |
 
 Honest caveat: the SoA win is real (it comes from vectorization), but at game scale the enemy
-update was never the bottleneck: 0.015 ms vs a collision pass in milliseconds. The layout matters
+update was never the bottleneck: about 0.01 ms at 10,000 enemies vs a collision pass of about 2 ms. The layout matters
 more for whatever becomes the hot loop next.
 
-**Debug vs Release** (quick benchmark, same scene): grid 2.82 ms vs 0.58 ms (~5×), naive at
+**Debug vs Release** (quick benchmark, same scene, measured on the cloud VM used during development): grid 2.82 ms vs 0.58 ms (~5×), naive at
 2,000 enemies 345 ms vs 35 ms (~10×). Always benchmark Release builds. Cloud-VM timings also
 vary by ±30% between runs, so run the benchmark twice and report the steadier run.
 
 **Rendering.** Once collisions were cheap, issuing one draw call per rectangle became a
 significant cost. Batching rects by color into one `SDL_RenderFillRectsF` call (toggle with
 **B**) cut CPU render time at 20,000 enemies + 13,000 bullets from 0.85 ms to 0.22 ms with
-SDL's software renderer on the VM.
+SDL's software renderer on the cloud VM used during development.
 <!-- TODO: replace with what `perf report` showed on YOUR machine (see "Profiling"). -->
 
 ## Testing and tooling
@@ -173,7 +179,7 @@ git checkout main
 ```
 
 See [`docs/BUILD_NOTES.md`](docs/BUILD_NOTES.md) for where this build differs from the original
-guide and why, and [`docs/INTERVIEW_NOTES.md`](docs/INTERVIEW_NOTES.md) for interview prep.
+guide and why.
 
 ## What I learned / what's next
 

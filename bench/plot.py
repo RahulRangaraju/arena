@@ -33,14 +33,14 @@ def main():
 
     # ---- Markdown table -------------------------------------------------------------
     print(f"<!-- {machine} -->")
-    print("| Enemies | Bullets | Naive collide (ms) | Grid collide (ms) | Speedup | FPS (grid, no vsync) |")
-    print("|---:|---:|---:|---:|---:|---:|")
+    print("| Enemies | Bullets | Naive collide (ms) | Grid collide (ms) | Speedup |")
+    print("|---:|---:|---:|---:|---:|")
     for n in counts:
         g, v = by.get(("grid", n)), by.get(("naive", n))
         if not (g and v):
             continue
         ng, nv = float(g["collide_ms"]), float(v["collide_ms"])
-        print(f"| {n:,} | {int(float(g['bullets'])):,} | {nv:.2f} | {ng:.2f} | {nv / ng:.0f}x | _fill in_ |")
+        print(f"| {n:,} | {int(float(g['bullets'])):,} | {nv:.2f} | {ng:.2f} | {nv / ng:.1f}× |")
 
     cells = sorted((r for r in rows if r["mode"] == "grid" and r["enemies"] == "10000"),
                    key=lambda r: float(r["cell"]))
